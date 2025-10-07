@@ -212,6 +212,8 @@ app.get("/api/candidates", (req, res) => {
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => console.log(`Upload server listening on ${PORT}`));
 
+require("./scheduler.js")
+
 function checkSessionExists(sessionId) {
   return new Promise((resolve, reject) => {
     db.get(
