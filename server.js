@@ -63,9 +63,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("test", (data)=>{
-    io.emit("test", {test : data.test})
-  })
+  // socket.on("test", (data)=>{
+  //   io.emit("test", {test : data.test})
+  // })
 
   socket.on("submitted", ({roomId}) =>{
     socket.to(roomId).emit("submitted", {roomId})
