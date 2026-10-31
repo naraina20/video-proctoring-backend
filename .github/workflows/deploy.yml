@@ -29,10 +29,11 @@ jobs:
           docker build -t narainad308/video-proctoring-backend:${{ steps.vars.outputs.sha_short }} .
           docker push narainad308/video-proctoring-backend:${{ steps.vars.outputs.sha_short }}
           
-          # Also tag as latest for global context
+          # Also tag as latest
           docker tag narainad308/video-proctoring-backend:${{ steps.vars.outputs.sha_short }} narainad308/video-proctoring-backend:latest
           docker push narainad308/video-proctoring-backend:latest
 
+      # Creates the directory on the host VM before copying files
       - name: Ensure deployment directory exists on VM
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -41,9 +42,10 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           script: |
-            # Automatically creates the folder if it does not exist yet
+            set -e
             mkdir -p /home/asus/video-proctoring-backend
 
+      # Transfers the docker-compose.yml file straight from your repository code
       - name: Push docker-compose.yml to VM
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -54,6 +56,7 @@ jobs:
           source: "docker-compose.yml"
           target: "/home/asus/video-proctoring-backend/"
 
+      # Executes the containerized infrastructure on your server
       - name: SSH and Deploy via Docker Compose
         uses: appleboy/ssh-action@v1.2.0
         env:
@@ -65,11 +68,13 @@ jobs:
           port: 22
           envs: TARGET_TAG
           script: |
+            set -e # <--- If any line below this fails, GitHub will immediately catch it!
+            
             cd /home/asus/video-proctoring-backend
 
-            # Execute Docker Compose using the freshly updated file and Git SHA
+            # Execute Docker Compose using the fresh file and the unique Git SHA
             sudo TAG=$TARGET_TAG docker compose pull
             sudo TAG=$TARGET_TAG docker compose up -d --force-recreate
             
-            # Wipes out stale image fragments to keep your VM storage completely clear
+            # Wipes out stale image layers to keep your VM storage completely clear
             sudo docker image prune -af
