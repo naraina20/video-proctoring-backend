@@ -1,4 +1,4 @@
-name: Build docker image and Deploy on VM
+name: Build and Deploy Video Proctoring Backend
 
 on:
   push:
@@ -6,37 +6,70 @@ on:
       - main
 
 jobs:
-  docker:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build Docker image
-        run: |
-          docker build -t narainad308/video-proctoring-backend:latest .
+      - name: Extract Short Commit SHA
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Push Docker image
+      - name: Build and Push Docker Images
         run: |
+          # Build with unique short SHA tag
+          docker build -t narainad308/video-proctoring-backend:${{ steps.vars.outputs.sha_short }} .
+          docker push narainad308/video-proctoring-backend:${{ steps.vars.outputs.sha_short }}
+          
+          # Also tag as latest for global context
+          docker tag narainad308/video-proctoring-backend:${{ steps.vars.outputs.sha_short }} narainad308/video-proctoring-backend:latest
           docker push narainad308/video-proctoring-backend:latest
 
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v1
+      - name: Ensure deployment directory exists on VM
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           script: |
-            sudo docker pull narainad308/video-proctoring-backend:latest
-            sudo docker stop video-proctoring-backend || true
-            sudo docker rm video-proctoring-backend || true
-            sudo docker run -d --restart unless-stopped --name video-proctoring-backend -p 5000:4000 narainad308/video-proctoring-backend:latest
+            # Automatically creates the folder if it does not exist yet
+            mkdir -p /home/asus/video-proctoring-backend
 
+      - name: Push docker-compose.yml to VM
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          source: "docker-compose.yml"
+          target: "/home/asus/video-proctoring-backend/"
+
+      - name: SSH and Deploy via Docker Compose
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          TARGET_TAG: ${{ steps.vars.outputs.sha_short }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          envs: TARGET_TAG
+          script: |
+            cd /home/asus/video-proctoring-backend
+
+            # Execute Docker Compose using the freshly updated file and Git SHA
+            sudo TAG=$TARGET_TAG docker compose pull
+            sudo TAG=$TARGET_TAG docker compose up -d --force-recreate
+            
+            # Wipes out stale image fragments to keep your VM storage completely clear
+            sudo docker image prune -af

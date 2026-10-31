@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  video-proctoring-backend:
+    image: narainad308/video-proctoring-backend:${TAG:-latest}
+    container_name: video-proctoring-backend
+    restart: unless-stopped
+    ports:
+      - "5000:4000"
